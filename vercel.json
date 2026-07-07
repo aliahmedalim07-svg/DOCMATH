@@ -1,0 +1,92 @@
+import { useEffect, useState } from "react";
+import { CheckCircle2, Plus } from "lucide-react";
+import { useI18n } from "../../contexts/I18nContext";
+import { StatusBadge } from "../../components/StatusBadge";
+import { getBooks } from "../../lib/api-service";
+// import { demoUsers, homework, studentHomework } from "../../data/mockData";
+import { formatDateTime } from "../../lib/utils";
+import type { Book } from "../../lib/types";
+
+export default function TeacherHomework() {
+  const { t } = useI18n();
+  const [homeworkList] = useState<any[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = homeworkList.find((item: any) => item.id === selectedId);
+  const submissions: any[] = [];
+  const [books, setBooks] = useState<Book[]>([]);
+
+  useEffect(() => {
+    getBooks().then(setBooks).catch(() => {});
+  }, []);
+
+  return (
+    <div className="space-y-5">
+      <section className="rounded-card border border-ziad-line bg-ziad-panel p-5 shadow-sm">
+        <p className="text-xs font-bold uppercase text-ziad-primary">{t("assignments")}</p>
+        <h1 className="text-3xl font-extrabold text-ziad-ink">{t("createAndGradeHomework")}</h1>
+        <p className="mt-2 text-sm text-ziad-ink/62">{t("publishInstructions")}</p>
+      </section>
+
+      <div className="grid gap-4 xl:grid-cols-[380px_1fr]">
+        <section className="rounded-card border border-ziad-line bg-ziad-panel p-4 shadow-sm">
+          <p className="text-xs font-bold uppercase text-ziad-primary">{t("actionCreate")}</p>
+          <div className="mt-3 space-y-3">
+            <input placeholder={t("assignmentTitle")} className="h-10 w-full rounded-button border border-ziad-line bg-white px-3 text-sm font-semibold outline-none focus:border-ziad-primary" />
+            <select className="h-10 w-full rounded-button border border-ziad-line bg-white px-3 text-sm font-semibold">
+              {books.map((book) => <option key={book.id}>{book.title}</option>)}
+            </select>
+            <textarea rows={4} placeholder={t("instructionsPlaceholder")} className="w-full rounded-card border border-ziad-line bg-white p-3 text-sm font-semibold outline-none focus:border-ziad-primary" />
+            <input type="datetime-local" className="h-10 w-full rounded-button border border-ziad-line bg-white px-3 text-sm font-semibold" />
+            <label className="inline-flex items-center gap-2 text-sm font-bold text-ziad-ink">
+              <input type="checkbox" className="h-4 w-4 rounded border-ziad-line text-ziad-primary" />
+              {t("publishLabel")}
+            </label>
+            <button type="button" className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-button bg-ziad-primary px-4 text-sm font-extrabold text-ziad-light hover:bg-ziad-ink">
+              <Plus className="h-4 w-4" />
+              {t("actionCreate")}
+            </button>
+          </div>
+
+          <div className="mt-5 space-y-2">
+            {homeworkList.map((task) => (
+              <button key={task.id} type="button" onClick={() => setSelectedId(task.id)} className={`w-full rounded-card border p-3 text-start ${selectedId === task.id ? "border-ziad-primary bg-ziad-light" : "border-ziad-line bg-ziad-panel hover:bg-ziad-light/45"}`}>
+                <p className="font-extrabold text-ziad-ink">{task.title}</p>
+                <p className="mt-1 text-xs font-semibold text-ziad-ink/58">Due {formatDateTime(task.dueDate)}</p>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section className="rounded-card border border-ziad-line bg-ziad-panel p-4 shadow-sm">
+          <p className="text-xs font-bold uppercase text-ziad-primary">{t("submissionsSection")}</p>
+          <h2 className="mt-1 text-xl font-extrabold text-ziad-ink">{selected?.title}</h2>
+          <div className="mt-4 space-y-3">
+            {submissions.map((submission: any) => (
+              <div key={submission.id} className="rounded-card border border-ziad-line bg-ziad-light/45 p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-extrabold text-ziad-ink">Student</p>
+                    <p className="mt-1 text-xs text-ziad-ink/58">{submission.submittedAt ? formatDateTime(submission.submittedAt) : t("pendingSubmission")}</p>
+                  </div>
+                  <StatusBadge status={submission.status} />
+                </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-[120px_1fr_auto]">
+                  <input defaultValue={submission.score ?? ""} type="number" placeholder={t("score")} className="h-10 rounded-button border border-ziad-line bg-white px-3 text-sm font-semibold outline-none focus:border-ziad-primary" />
+                  <input defaultValue={submission.feedback ?? ""} placeholder={t("feedbackPlaceholder")} className="h-10 rounded-button border border-ziad-line bg-white px-3 text-sm font-semibold outline-none focus:border-ziad-primary" />
+                  <button type="button" className="inline-flex h-10 items-center justify-center gap-2 rounded-button bg-ziad-primary px-4 text-sm font-extrabold text-ziad-light hover:bg-ziad-ink">
+                    <CheckCircle2 className="h-4 w-4" />
+                    {t("gradeButton")}
+                  </button>
+                </div>
+              </div>
+            ))}
+            {submissions.length === 0 && (
+              <p className="text-sm font-medium text-ziad-ink/72">{t("noSubmissionsFound")}</p>
+            )}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+

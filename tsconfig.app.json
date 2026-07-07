@@ -1,0 +1,144 @@
+import { useState, useEffect } from "react";
+import { KeyRound, Trash2, Search } from "lucide-react";
+import { useI18n } from "../../contexts/I18nContext";
+import { useAuth } from "../../contexts/AuthContext";
+import { getAdmins, deleteAdmin, resetUserPassword, type UserProfileDto } from "../../lib/api-service";
+
+export default function TeacherAdmins() {
+  const { t } = useI18n();
+  const { user } = useAuth();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [admins, setAdmins] = useState<UserProfileDto[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function loadData() {
+      try {
+        const adminData = await getAdmins();
+        setAdmins(adminData);
+      } catch (error) {
+        console.error("Failed to load admins", error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
+  }, []);
+
+  const handleDeleteAdmin = async (admin: UserProfileDto) => {
+    if (!confirm(t("deleteAdminConfirm"))) return;
+    setDeletingId(admin.id);
+    try {
+      await deleteAdmin(admin.id);
+      setAdmins(prev => prev.filter(a => a.id !== admin.id));
+    } catch (error) {
+      console.error("Failed to delete admin", error);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleResetPassword = async (admin: UserProfileDto) => {
+    const newPassword = window.prompt(`${t("enterNewPassword")} ${admin.name}`);
+    if (!newPassword) return;
+    if (newPassword.length < 6) {
+      window.alert(t("passwordMinChars"));
+      return;
+    }
+
+    setDeletingId(admin.id);
+    try {
+      await resetUserPassword(admin.id, newPassword);
+      window.alert(t("passwordHasBeenReset"));
+    } catch (error) {
+      console.error("Failed to reset password", error);
+      window.alert(t("couldNotResetPassword"));
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const filteredAdmins = admins.filter(a => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      a.name.toLowerCase().includes(q) ||
+      (a.phone && a.phone.toLowerCase().includes(q)) ||
+      (a.userName && a.userName.toLowerCase().includes(q))
+    );
+  });
+
+  return (
+    <div className="space-y-5">
+      <section className="rounded-card border border-ziad-line bg-ziad-panel p-5 shadow-sm">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-xs font-bold uppercase text-ziad-primary">{t("admins")}</p>
+            <h1 className="text-3xl font-extrabold text-ziad-ink">{t("adminManagement")}</h1>
+            <p className="mt-2 text-sm text-ziad-ink/62">{t("viewAndManageAdmins")}</p>
+          </div>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ziad-ink/65" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={t("searchNameUsernamePhone")}
+              className="h-10 w-64 rounded-button border border-ziad-line bg-white pl-9 pr-3 text-sm text-ziad-ink placeholder:text-ziad-ink/62 focus:outline-none focus:ring-2 focus:ring-ziad-primary/30"
+            />
+          </div>
+        </div>
+      </section>
+
+      <div className="table-scroll overflow-x-auto rounded-card border border-ziad-line bg-ziad-panel shadow-sm">
+        <table className="min-w-[800px] w-full border-collapse text-sm">
+          <thead className="bg-ziad-light text-xs uppercase text-ziad-ink/68">
+            <tr>
+              {[t("nameColumn"), t("username"), t("phoneLabel"), "Actions"].map((column) => (
+                <th key={column} className="px-4 py-3 text-start font-extrabold">{column}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-ziad-line">
+            {loading ? (
+              <tr>
+                <td colSpan={4} className="py-8 text-center font-medium text-ziad-ink/72">{t("loadingAdmins")}</td>
+              </tr>
+            ) : filteredAdmins.length === 0 ? (
+              <tr>
+                <td colSpan={4} className="py-8 text-center font-medium text-ziad-ink/72">{t("noResultsFound")}</td>
+              </tr>
+            ) : filteredAdmins.map((admin) => (
+              <tr key={admin.id} className="hover:bg-ziad-light/35">
+                <td className="px-4 py-4 font-extrabold text-ziad-ink">{admin.name}</td>
+                <td className="px-4 py-4 text-ziad-ink/70">{admin.userName || t("notAvailable")}</td>
+                <td className="px-4 py-4 text-ziad-ink/70">{admin.phone || t("notAvailable")}</td>
+                <td className="px-4 py-4">
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => handleResetPassword(admin)}
+                      disabled={deletingId === admin.id}
+                      className="inline-flex items-center gap-1.5 rounded-button border border-ziad-line bg-ziad-panel px-2.5 py-1.5 text-xs font-bold text-ziad-ink hover:bg-ziad-light disabled:opacity-60"
+                    >
+                      <KeyRound className="h-3.5 w-3.5" /> {t("actionResetPassword")}
+                    </button>
+                    {admin.id !== user?.id && (
+                      <button
+                        onClick={() => handleDeleteAdmin(admin)}
+                        disabled={deletingId === admin.id}
+                        className="inline-flex items-center gap-1.5 rounded-button border border-red-300 bg-white px-2.5 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50 disabled:opacity-60"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" /> {t("actionDelete")}
+                      </button>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}

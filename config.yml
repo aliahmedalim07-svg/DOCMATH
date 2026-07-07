@@ -1,0 +1,405 @@
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useI18n } from "../../contexts/I18nContext";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  LabelList,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
+  Activity,
+  CalendarCheck,
+  ClipboardCheck,
+  GraduationCap,
+  Loader2,
+  Radio,
+  TrendingUp,
+  Users,
+} from "lucide-react";
+import { StatCard } from "../../components/StatCard";
+import { getAdminDashboard, getStudents, type AdminDashboardData, type AdminDashboardSeriesPoint } from "../../lib/api-service";
+import { formatDateTime, percentClass, to800 } from "../../lib/utils";
+
+const chartColors = ["#01219a", "#0f766e", "#d97706", "#be123c", "#6d28d9", "#475569"];
+
+const emptyDashboard: AdminDashboardData = {
+  totalStudents: 0,
+  totalCourses: 0,
+  activeCourses: 0,
+  endedCourses: 0,
+  totalBooks: 0,
+  totalSessions: 0,
+  totalAssignments: 0,
+  totalSkills: 0,
+  totalWeeklyExams: 0,
+  totalAttempts: 0,
+  averageScore: 0,
+  attemptsToday: 0,
+  attemptTrend: [],
+  scoreTrend: [],
+  courseDistribution: [],
+  averageScoreByCourse: [],
+  courseStatus: [],
+  contentMix: [],
+  recentAttempts: [],
+};
+
+function ChartShell({ eyebrow, title, helper, children }: { eyebrow: string; title: string; helper?: string; children: ReactNode }) {
+  return (
+    <section className="rounded-card border border-ziad-line bg-ziad-panel p-5 shadow-sm">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-bold uppercase text-ziad-primary">{eyebrow}</p>
+          <h2 className="text-lg font-extrabold text-ziad-ink">{title}</h2>
+          {helper ? <p className="mt-1 text-xs font-semibold text-ziad-ink/75">{helper}</p> : null}
+        </div>
+        <Activity className="h-5 w-5 text-ziad-primary" />
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function EmptyChart({ label }: { label: string }) {
+  return (
+    <div className="flex h-full min-h-56 items-center justify-center rounded-button border border-dashed border-ziad-line bg-ziad-light/30 text-sm font-bold text-ziad-ink/75">
+      {label}
+    </div>
+  );
+}
+
+function hasData(items: AdminDashboardSeriesPoint[]) {
+  return items.some((item) => item.value > 0);
+}
+
+function StatLegend({ items }: { items: AdminDashboardSeriesPoint[] }) {
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {items.map((item, index) => (
+        <div key={item.label} className="rounded-button border border-ziad-line bg-ziad-light/45 px-3 py-2">
+          <span className="inline-flex items-center gap-2 text-xs font-bold uppercase text-ziad-ink/78">
+            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: chartColors[index % chartColors.length] }} />
+            {item.label}
+          </span>
+          <p className="mt-1 text-lg font-extrabold text-ziad-ink">{item.value}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default function TeacherDashboard() {
+  const { t } = useI18n();
+  const [dashboard, setDashboard] = useState<AdminDashboardData>(emptyDashboard);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [activeStudentsCount, setActiveStudentsCount] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+
+    Promise.all([
+      getAdminDashboard(),
+      getStudents(),
+    ])
+      .then(([data, students]) => {
+        if (!active) return;
+        setDashboard(data);
+        setActiveStudentsCount(students.filter((s) => s.courseIds.length > 0).length);
+        setError(null);
+      })
+      .catch(() => {
+        if (active) setError(t("dashboardAnalyticsError"));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const activityHealth = useMemo(() => {
+    if (dashboard.totalStudents === 0) return t("noResultsFound");
+    if (dashboard.averageScore >= 75) return t("strongPerformance");
+    if (dashboard.averageScore >= 50) return t("needsAttention");
+    return t("reviewUrgently");
+  }, [dashboard.averageScore, dashboard.totalStudents, t]);
+
+  const activeCoursePercent = dashboard.totalCourses > 0
+    ? Math.round((dashboard.activeCourses / dashboard.totalCourses) * 100)
+    : 0;
+
+  const scoreByCourseData = useMemo(() =>
+    dashboard.averageScoreByCourse.map(item => ({ ...item, value: to800(item.value) })),
+    [dashboard.averageScoreByCourse]
+  );
+
+  const scoreTrendData = useMemo(() =>
+    dashboard.scoreTrend.map(item => ({ ...item, value: to800(item.value) })),
+    [dashboard.scoreTrend]
+  );
+
+  return (
+    <div className="space-y-6">
+      <section className="overflow-hidden rounded-card border border-ziad-line bg-ziad-panel shadow-sm">
+        <div className="grid gap-0 lg:grid-cols-[1fr_360px]">
+          <div className="p-5 sm:p-6">
+            <p className="text-xs font-bold uppercase text-ziad-primary">{t("teacherDashboard")}</p>
+            <h1 className="mt-2 text-3xl font-extrabold text-ziad-ink">{t("operationsSnapshot")}</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-ziad-ink/78">
+              {t("trackCourseCoverage")}
+            </p>
+            {error ? (
+              <p className="mt-4 rounded-button border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-700">{error}</p>
+            ) : null}
+          </div>
+          <div className="border-t border-ziad-line bg-ziad-light/55 p-5 lg:border-l lg:border-t-0">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-bold uppercase text-ziad-ink/75">{t("todayStat")}</p>
+                <p className="mt-1 text-3xl font-extrabold text-ziad-ink">{loading ? "..." : dashboard.attemptsToday}</p>
+                <p className="mt-1 text-sm font-semibold text-ziad-ink/78">{t("studentAttempts")}</p>
+              </div>
+              <div className="grid h-14 w-14 place-items-center rounded-card border border-ziad-line bg-ziad-panel text-ziad-primary shadow-sm">
+                <TrendingUp className="h-7 w-7" />
+              </div>
+            </div>
+            <div className="mt-5 rounded-button border border-ziad-line bg-ziad-panel px-3 py-2">
+              <p className="text-xs font-bold uppercase text-ziad-ink/75">{t("learningHealth")}</p>
+              <p className="mt-1 text-sm font-extrabold text-ziad-ink">{activityHealth}</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard label={t("students")} value={loading ? "..." : activeStudentsCount} icon={Users} helper={t("registeredLearners")} />
+        <StatCard label={t("activeCoursesCount")} value={loading ? "..." : dashboard.activeCourses} icon={GraduationCap} tone="blue" helper={`${dashboard.endedCourses} ${t("endedCourses")}`} />
+        <StatCard label={t("averageScore")} value={loading ? "..." : `${to800(dashboard.averageScore)}/800`} icon={ClipboardCheck} tone={dashboard.averageScore >= 70 ? "green" : "amber"} helper={`${dashboard.totalAttempts} ${t("totalAttempts")}`} />
+        <StatCard label={t("liveContent")} value={loading ? "..." : dashboard.totalSessions} icon={Radio} tone="red" helper={`${dashboard.totalBooks} ${t("totalBooksCount")}`} />
+      </div>
+
+      <section className="grid gap-4 xl:grid-cols-[1.25fr_0.75fr]">
+        <ChartShell eyebrow={t("activityChart")} title={t("dailyAttempts")} helper={t("clearCountLabels")}>
+          <div className="h-72">
+            {loading ? (
+              <div className="flex h-full items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-ziad-primary" /></div>
+            ) : hasData(dashboard.attemptTrend) ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={dashboard.attemptTrend} margin={{ left: -18, right: 12, top: 22, bottom: 0 }}>
+                  <CartesianGrid stroke="#E1E7ED" strokeDasharray="4 4" vertical={false} />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: "#39495c", fontSize: 12 }} />
+                  <YAxis allowDecimals={false} tickLine={false} axisLine={false} tick={{ fill: "#39495c", fontSize: 12 }} />
+                  <Tooltip cursor={{ fill: "rgba(1, 33, 154, 0.06)" }} contentStyle={{ borderRadius: 8, border: "1px solid #E1E7ED" }} />
+                  <Bar dataKey="value" name="Attempts" radius={[8, 8, 0, 0]} fill="#01219a">
+                    <LabelList dataKey="value" position="top" fill="#132236" fontSize={12} fontWeight={800} />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <EmptyChart label={t("noAttemptsFound")} />
+            )}
+          </div>
+        </ChartShell>
+
+        <ChartShell eyebrow={t("coursesChart")} title={t("activeCourseCoverage")} helper={t("catalogAvailable")}>
+          <div className="relative h-72">
+            {loading ? (
+              <div className="flex h-full items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-ziad-primary" /></div>
+            ) : hasData(dashboard.courseStatus) ? (
+              <>
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={dashboard.courseStatus} dataKey="value" nameKey="label" innerRadius={72} outerRadius={100} paddingAngle={3} startAngle={90} endAngle={-270}>
+                      {dashboard.courseStatus.map((_, index) => (
+                        <Cell key={index} fill={chartColors[index % chartColors.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #E1E7ED" }} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="pointer-events-none absolute inset-0 grid place-items-center">
+                  <div className="text-center">
+                    <p className="text-3xl font-extrabold text-ziad-ink">{activeCoursePercent}%</p>
+                    <p className="text-xs font-bold uppercase text-ziad-ink/75">{t("activeLower")}</p>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <EmptyChart label={t("noCoursesFound")} />
+            )}
+          </div>
+          <StatLegend items={dashboard.courseStatus} />
+        </ChartShell>
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-2">
+        <ChartShell eyebrow={t("enrollmentChart")} title={t("studentsByCourse")} helper={t("horizontalBarsReadable")}>
+          <div className="h-72">
+            {loading ? (
+              <div className="flex h-full items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-ziad-primary" /></div>
+            ) : hasData(dashboard.courseDistribution) ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={dashboard.courseDistribution} layout="vertical" margin={{ left: 18, right: 28, top: 8, bottom: 0 }}>
+                  <CartesianGrid stroke="#E1E7ED" strokeDasharray="4 4" horizontal={false} />
+                  <XAxis type="number" allowDecimals={false} tickLine={false} axisLine={false} tick={{ fill: "#39495c", fontSize: 12 }} />
+                  <YAxis
+                    type="category"
+                    dataKey="label"
+                    width={110}
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fill: "#39495c", fontSize: 11 }}
+                  />
+                  <Tooltip cursor={{ fill: "rgba(15, 118, 110, 0.06)" }} contentStyle={{ borderRadius: 8, border: "1px solid #E1E7ED" }} />
+                  <Bar dataKey="value" name="Students" radius={[0, 8, 8, 0]} fill="#0f766e">
+                    <LabelList dataKey="value" position="right" fill="#132236" fontSize={12} fontWeight={800} />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <EmptyChart label={t("noResultsFound")} />
+            )}
+          </div>
+        </ChartShell>
+
+        <ChartShell eyebrow={t("coursePerformanceChart")} title={t("averageScoreByCourse")} helper={t("coursesLandingWell")}>
+          <div className="h-72">
+            {loading ? (
+              <div className="flex h-full items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-ziad-primary" /></div>
+            ) : hasData(dashboard.averageScoreByCourse) ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={scoreByCourseData} layout="vertical" margin={{ left: 18, right: 34, top: 8, bottom: 0 }}>
+                  <CartesianGrid stroke="#E1E7ED" strokeDasharray="4 4" horizontal={false} />
+                  <XAxis type="number" domain={[0, 800]} tickLine={false} axisLine={false} tick={{ fill: "#39495c", fontSize: 12 }} />
+                  <YAxis
+                    type="category"
+                    dataKey="label"
+                    width={118}
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fill: "#39495c", fontSize: 11 }}
+                  />
+                  <Tooltip cursor={{ fill: "rgba(109, 40, 217, 0.06)" }} contentStyle={{ borderRadius: 8, border: "1px solid #E1E7ED" }} formatter={(value) => [`${value}/800`, t("averageScore")]} />
+                  <Bar dataKey="value" name="Average score" radius={[0, 8, 8, 0]} fill="#6d28d9">
+                    <LabelList dataKey="value" position="right" fill="#132236" fontSize={12} fontWeight={800} formatter={(value: number) => `${value}`} />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <EmptyChart label={t("noResultsFound")} />
+            )}
+          </div>
+          {!loading && dashboard.averageScoreByCourse.length > 0 ? (
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {dashboard.averageScoreByCourse.slice(0, 4).map((course) => (
+                <div key={course.label} className="flex items-center justify-between gap-3 rounded-button border border-ziad-line bg-ziad-light/35 px-3 py-2">
+                  <span className="truncate text-xs font-extrabold text-ziad-ink">{course.label}</span>
+                  <span className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-extrabold ${percentClass(to800(course.value))}`}>
+                    {to800(course.value)}/800
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </ChartShell>
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-2">
+        <ChartShell eyebrow={t("performanceTrendChart")} title={t("averageScoreTrend")} helper={t("guideLineTargetPercent")}>
+          <div className="h-72">
+            {loading ? (
+              <div className="flex h-full items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-ziad-primary" /></div>
+            ) : hasData(dashboard.scoreTrend) ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={scoreTrendData} margin={{ left: -18, right: 12, top: 18, bottom: 0 }}>
+                  <CartesianGrid stroke="#E1E7ED" strokeDasharray="4 4" vertical={false} />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: "#39495c", fontSize: 12 }} />
+                  <YAxis domain={[0, 800]} tickLine={false} axisLine={false} tick={{ fill: "#39495c", fontSize: 12 }} />
+                  <ReferenceLine y={560} stroke="#d97706" strokeDasharray="5 5" label={{ value: "560", position: "insideTopRight", fill: "#92400e", fontSize: 12 }} />
+                  <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #E1E7ED" }} formatter={(value) => [`${value}/800`, t("averageScore")]} />
+                  <Line type="monotone" dataKey="value" name="Average score" stroke="#0f766e" strokeWidth={3} dot={{ r: 4, fill: "#0f766e", strokeWidth: 2, stroke: "#f7fafc" }} activeDot={{ r: 6 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <EmptyChart label={t("noResultsFound")} />
+            )}
+          </div>
+        </ChartShell>
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-[0.85fr_1.15fr]">
+        <ChartShell eyebrow={t("contentChart")} title={t("teachingMix")} helper={t("materialBalance")}>
+          <div className="space-y-4">
+            {dashboard.contentMix.length === 0 && !loading ? (
+              <EmptyChart label={t("noContentYet")} />
+            ) : (
+              dashboard.contentMix.map((item, index) => {
+                const total = Math.max(dashboard.contentMix.reduce((sum, entry) => sum + entry.value, 0), 1);
+                const width = Math.max((item.value / total) * 100, item.value > 0 ? 6 : 0);
+                return (
+                  <div key={item.label} className="rounded-button border border-ziad-line bg-ziad-light/35 p-3">
+                    <div className="mb-2 flex items-center justify-between gap-3 text-sm font-bold text-ziad-ink">
+                      <span>{item.label}</span>
+                      <span className="text-ziad-ink/80">{item.value}</span>
+                    </div>
+                    <div className="h-3 overflow-hidden rounded-full bg-ziad-panel">
+                      <div
+                        className="h-full rounded-full transition-[width] duration-300"
+                        style={{ width: `${width}%`, backgroundColor: chartColors[index % chartColors.length] }}
+                      />
+                    </div>
+                    <p className="mt-2 text-xs font-semibold text-ziad-ink/75">{Math.round((item.value / total) * 100)}{t("percentOfContent")}</p>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </ChartShell>
+
+        <section className="rounded-card border border-ziad-line bg-ziad-panel p-5 shadow-sm">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-bold uppercase text-ziad-primary">{t("recentActivityLabel")}</p>
+              <h2 className="text-lg font-extrabold text-ziad-ink">{t("latestAttempts")}</h2>
+            </div>
+            <CalendarCheck className="h-5 w-5 text-ziad-primary" />
+          </div>
+          {loading ? (
+            <div className="flex min-h-48 items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-ziad-primary" /></div>
+          ) : dashboard.recentAttempts.length === 0 ? (
+            <EmptyChart label={t("noRecentAttempts")} />
+          ) : (
+            <div className="divide-y divide-ziad-line">
+              {dashboard.recentAttempts.map((attempt) => (
+                <div key={attempt.id} className="grid gap-3 py-3 sm:grid-cols-[1fr_auto] sm:items-center">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-extrabold text-ziad-ink">{attempt.activityTitle}</p>
+                    <p className="mt-1 text-xs font-semibold text-ziad-ink/75">
+                      {attempt.studentName} - {formatDateTime(attempt.submittedAt)}
+                    </p>
+                  </div>
+                  <span className={`w-fit rounded-button border px-2.5 py-1 text-xs font-extrabold ${percentClass(to800(attempt.score))}`}>
+                    {to800(attempt.score)}/800
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      </section>
+    </div>
+  );
+}

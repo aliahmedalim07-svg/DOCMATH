@@ -1,0 +1,890 @@
+import { useEffect, useState } from "react";
+import { GripVertical, Loader2, Plus, X, Check, Search, Trash2, AlertCircle } from "lucide-react";
+import { useI18n } from "../../contexts/I18nContext";
+import { StatusBadge } from "../../components/StatusBadge";
+import { getAssignments, getBooks, getQuestions, getSkills, createAssignment, createSkill, getCourses, addQuestionToAssignment, removeQuestionFromAssignment, deleteQuestionGroup, reorderQuestions, getTopics, updateQuestionGroupCourse } from "../../lib/api-service";
+import { cn } from "../../lib/utils";
+import type { Book, Question, Topic } from "../../lib/types";
+import type { AdminCourse } from "../../lib/api-service";
+import SortableQuestionList from "../../components/SortableQuestionList";
+import ImagePreviewModal from "../../components/ImagePreviewModal";
+
+type AssignmentType = "assignment" | "skill";
+
+interface GroupWithQuestions {
+  id: number;
+  title: string;
+  type: number;
+  durationInMinutes?: number;
+  bookId?: string;
+  book?: { id: number; title: string };
+  courseId?: string;
+  questionBelongings: { question: any; id: number }[];
+}
+
+export default function TeacherAssignments() {
+  const { t } = useI18n();
+  const [books, setBooks] = useState<Book[]>([]);
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [topics, setTopics] = useState<Topic[]>([]);
+  const [assignmentsList, setAssignmentsList] = useState<GroupWithQuestions[]>([]);
+  const [skillsList, setSkillsList] = useState<GroupWithQuestions[]>([]);
+  const [courses, setCourses] = useState<AdminCourse[]>([]);
+  const [assignmentSearch, setAssignmentSearch] = useState("");
+  const [skillSearch, setSkillSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [bookId, setBookId] = useState("");
+  const [courseId, setCourseId] = useState("");
+
+  const [title, setTitle] = useState("");
+  const [type, setType] = useState<AssignmentType>("assignment");
+  const [duration, setDuration] = useState<number>(60);
+  const [saving, setSaving] = useState(false);
+
+  const [questionPickerOpen, setQuestionPickerOpen] = useState(false);
+  const [selectedGroup, setSelectedGroup] = useState<GroupWithQuestions | null>(null);
+  const [questionSearch, setQuestionSearch] = useState("");
+  const [questionBookFilter, setQuestionBookFilter] = useState("");
+  const [addingQuestion, setAddingQuestion] = useState<string | null>(null);
+  const [removingQuestionId, setRemovingQuestionId] = useState<number | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState<number | null>(null);
+  const [topicPickerOpen, setTopicPickerOpen] = useState(false);
+  const [selectedGroupForTopic, setSelectedGroupForTopic] = useState<GroupWithQuestions | null>(null);
+  const [selectedTopicId, setSelectedTopicId] = useState("");
+  const [addingTopicQuestions, setAddingTopicQuestions] = useState(false);
+  const [topicSearch, setTopicSearch] = useState("");
+  const [selectedTopicQuestionIds, setSelectedTopicQuestionIds] = useState<Set<number>>(new Set());
+  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const [editingCourseGroupId, setEditingCourseGroupId] = useState<number | null>(null);
+  const [editingCourseValue, setEditingCourseValue] = useState("");
+  const [savingCourse, setSavingCourse] = useState(false);
+
+  useEffect(() => {
+    Promise.all([getBooks(), getQuestions(), getAssignments(), getSkills(), getCourses(), getTopics()])
+      .then(([b, q, a, s, c, t]) => {
+        setBooks(b);
+        setQuestions(q);
+        setTopics(t);
+        setAssignmentsList(a.map((qg: any) => ({
+          id: Number(qg.id),
+          title: qg.title,
+          type: qg.type ?? 0,
+          durationInMinutes: qg.durationInMinutes,
+          bookId: qg.bookId,
+          book: qg.book,
+          courseId: qg.courseId,
+          questionBelongings: (qg.questionBelongings || []).map((qb: any) => ({
+            id: qb.id,
+            question: qb.question
+          }))
+        })));
+        setSkillsList(s.map((qg: any) => ({
+          id: Number(qg.id),
+          title: qg.name || qg.title,
+          type: 1,
+          courseId: qg.courseId,
+          questionBelongings: (qg.questionBelongings || []).map((qb: any) => ({
+            id: qb.id,
+            question: qb.question
+          }))
+        })));
+        setCourses(c);
+        if (b.length) setBookId(b[0].id);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const getBookById = (id: string) => books.find((b) => b.id === id);
+  const getCourseById = (id: string) => courses.find((c) => c.id === id);
+
+  const filteredAssignments = assignmentSearch.trim()
+    ? assignmentsList.filter(a => a.title.toLowerCase().includes(assignmentSearch.toLowerCase()))
+    : assignmentsList;
+
+  const filteredSkills = skillSearch.trim()
+    ? skillsList.filter(s => s.title.toLowerCase().includes(skillSearch.toLowerCase()))
+    : skillsList;
+
+  const refreshGroups = async () => {
+    const [a, s] = await Promise.all([getAssignments(), getSkills()]);
+    const newAssignments = a.map((qg: any) => ({
+      id: Number(qg.id),
+      title: qg.title,
+      type: qg.type ?? 0,
+      durationInMinutes: qg.durationInMinutes,
+      bookId: qg.bookId,
+      book: qg.book,
+      courseId: qg.courseId,
+      questionBelongings: (qg.questionBelongings || []).map((qb: any) => ({
+        id: qb.id,
+        question: qb.question
+      }))
+    }));
+    const newSkills = s.map((qg: any) => ({
+      id: Number(qg.id),
+      title: qg.name || qg.title,
+      type: 1,
+      courseId: qg.courseId,
+      questionBelongings: (qg.questionBelongings || []).map((qb: any) => ({
+        id: qb.id,
+        question: qb.question
+      }))
+    }));
+    setAssignmentsList(newAssignments);
+    setSkillsList(newSkills);
+
+    if (selectedGroup) {
+      const updated = [...newAssignments, ...newSkills].find(g => g.id === selectedGroup.id);
+      if (updated) setSelectedGroup(updated);
+    }
+    if (selectedGroupForTopic) {
+      const updated = [...newAssignments, ...newSkills].find(g => g.id === selectedGroupForTopic.id);
+      if (updated) setSelectedGroupForTopic(updated);
+    }
+  };
+
+  const handleCreate = async () => {
+    if (!title.trim()) return;
+    setSaving(true);
+    try {
+      if (type === "assignment") {
+        await createAssignment(title, Number(bookId), duration, courseId || undefined);
+      } else {
+        await createSkill(title, courseId || undefined);
+      }
+      setTitle("");
+      await refreshGroups();
+    } catch (err) {
+      console.error("Failed to create:", err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openQuestionPicker = (group: GroupWithQuestions) => {
+    setSelectedGroup(group);
+    setQuestionPickerOpen(true);
+    setQuestionSearch("");
+    setQuestionBookFilter("");
+  };
+
+  const getQuestionsInGroup = (group: GroupWithQuestions): number[] => {
+    return group.questionBelongings.map(qb => qb.question.id);
+  };
+
+  const getAvailableQuestions = (group: GroupWithQuestions): Question[] => {
+    const inGroup = getQuestionsInGroup(group);
+    return questions.filter(q => !inGroup.includes(Number(q.id)));
+  };
+
+  const getFilteredAvailable = (): Question[] => {
+    if (!selectedGroup) return [];
+    let available = getAvailableQuestions(selectedGroup);
+    if (questionBookFilter) {
+      available = available.filter(q => q.bookId === questionBookFilter);
+    }
+    if (!questionSearch.trim()) return available;
+    const search = questionSearch.toLowerCase();
+    return available.filter(q =>
+      q.content.toLowerCase().includes(search) ||
+      q.difficulty.toLowerCase().includes(search) ||
+      String(q.yearAppeared).includes(search)
+    );
+  };
+
+  const handleAddQuestion = async (questionId: string | number) => {
+    if (!selectedGroup) return;
+    setAddingQuestion(String(questionId));
+    setMessage(null);
+    try {
+      await addQuestionToAssignment(selectedGroup.id, questionId);
+      setMessage({ type: "success", text: t("questionAddedSuccess") });
+      setQuestionPickerOpen(false);
+      setSelectedGroup(null);
+      await refreshGroups();
+    } catch (err: any) {
+      console.error("Failed to add question:", err);
+      const msg = err?.message || t("failedToAddQuestion");
+      setMessage({ type: "error", text: msg });
+    } finally {
+      setAddingQuestion(null);
+    }
+  };
+
+  const getFilteredTopicQuestions = (): Question[] => {
+    if (!selectedGroupForTopic || !selectedTopicId) return [];
+    const groupQuestionIds = selectedGroupForTopic.questionBelongings.map(qb => qb.question.id);
+    let available = questions.filter(q => q.topicId === Number(selectedTopicId) && !groupQuestionIds.includes(Number(q.id)));
+    if (!topicSearch.trim()) return available;
+    const search = topicSearch.toLowerCase();
+    return available.filter(q =>
+      q.content.toLowerCase().includes(search) ||
+      q.difficulty.toLowerCase().includes(search) ||
+      String(q.yearAppeared).includes(search)
+    );
+  };
+
+  const handleAddTopicQuestion = async (questionId: string | number) => {
+    if (!selectedGroupForTopic) return;
+    setAddingQuestion(String(questionId));
+    setMessage(null);
+    try {
+      await addQuestionToAssignment(selectedGroupForTopic.id, questionId);
+      setMessage({ type: "success", text: t("questionAddedSuccess") });
+      setTopicPickerOpen(false);
+      setSelectedGroupForTopic(null);
+      await refreshGroups();
+    } catch (err: any) {
+      console.error("Failed to add question:", err);
+      const msg = err?.message || t("failedToAddQuestion");
+      setMessage({ type: "error", text: msg });
+    } finally {
+      setAddingQuestion(null);
+    }
+  };
+
+  const handleToggleTopicQuestion = (questionId: number) => {
+    setSelectedTopicQuestionIds(prev => {
+      const next = new Set(prev);
+      if (next.has(questionId)) {
+        next.delete(questionId);
+      } else {
+        next.add(questionId);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAllTopicQuestions = () => {
+    const filtered = getFilteredTopicQuestions();
+    if (selectedTopicQuestionIds.size === filtered.length && filtered.length > 0) {
+      setSelectedTopicQuestionIds(new Set());
+    } else {
+      setSelectedTopicQuestionIds(new Set(filtered.map(q => Number(q.id))));
+    }
+  };
+
+  const handleAddSelectedTopicQuestions = async () => {
+    if (!selectedGroupForTopic || selectedTopicQuestionIds.size === 0) return;
+    setAddingTopicQuestions(true);
+    setMessage(null);
+    try {
+      for (const qId of selectedTopicQuestionIds) {
+        await addQuestionToAssignment(selectedGroupForTopic.id, qId);
+      }
+      setMessage({ type: "success", text: t("questionsAddedFromTopic") });
+      await refreshGroups();
+    } catch (err: any) {
+      console.error("Failed to add questions:", err);
+      setMessage({ type: "error", text: err?.message || t("failedToAddQuestion") });
+    } finally {
+      setAddingTopicQuestions(false);
+      setTopicPickerOpen(false);
+      setSelectedGroupForTopic(null);
+      setSelectedTopicId("");
+      setTopicSearch("");
+      setSelectedTopicQuestionIds(new Set());
+    }
+  };
+
+  const handleRemoveQuestion = async (groupId: number, questionId: number) => {
+    setRemovingQuestionId(questionId);
+    setMessage(null);
+    try {
+      await removeQuestionFromAssignment(groupId, questionId);
+      await refreshGroups();
+    } catch (err: any) {
+      console.error("Failed to remove question:", err);
+      setMessage({ type: "error", text: err?.message || t("failedToRemoveQuestion") });
+    } finally {
+      setRemovingQuestionId(null);
+    }
+  };
+
+  const handleReorder = (groupId: number, belongingIds: number[]) => {
+    setAssignmentsList(prev =>
+      prev.map(g => g.id === groupId ? { ...g, questionBelongings: belongingIds.map((id, i) => {
+        const item = g.questionBelongings.find(b => b.id === id)!;
+        return { ...item, orderIndex: i };
+      })} : g)
+    );
+    setSkillsList(prev =>
+      prev.map(g => g.id === groupId ? { ...g, questionBelongings: belongingIds.map((id, i) => {
+        const item = g.questionBelongings.find(b => b.id === id)!;
+        return { ...item, orderIndex: i };
+      })} : g)
+    );
+    if (selectedGroup?.id === groupId) {
+      setSelectedGroup(prev => prev ? { ...prev, questionBelongings: belongingIds.map((id, i) => {
+        const item = prev.questionBelongings.find(b => b.id === id)!;
+        return { ...item, orderIndex: i };
+      })} : null);
+    }
+    reorderQuestions(groupId, belongingIds).catch((err: any) => {
+      console.error("Failed to reorder:", err);
+      setMessage({ type: "error", text: t("failedToReorderQuestions") });
+      refreshGroups();
+    });
+  };
+
+  const handleDeleteGroup = async (groupId: number, type: "assignment" | "skill") => {
+    if (!confirm(t("deleteAssignmentConfirm"))) return;
+    setDeleteLoading(groupId);
+    setMessage(null);
+    try {
+      await deleteQuestionGroup(groupId);
+      setMessage({ type: "success", text: type === "assignment" ? t("assignmentDeletedSuccess") : t("skillDeletedSuccess") });
+      await refreshGroups();
+    } catch (err: any) {
+      console.error("Failed to delete:", err);
+      setMessage({ type: "error", text: err?.message || t("failedToDeleteMessage") });
+    } finally {
+      setDeleteLoading(null);
+    }
+  };
+
+  const handleStartCourseEdit = (group: GroupWithQuestions) => {
+    setEditingCourseGroupId(group.id);
+    setEditingCourseValue(group.courseId || "");
+  };
+
+  const handleSaveCourse = async () => {
+    if (editingCourseGroupId === null) return;
+    setSavingCourse(true);
+    setMessage(null);
+    try {
+      await updateQuestionGroupCourse(editingCourseGroupId, editingCourseValue || undefined);
+      setMessage({ type: "success", text: t("courseUpdated") });
+      await refreshGroups();
+    } catch (err: any) {
+      console.error("Failed to update course:", err);
+      setMessage({ type: "error", text: err?.message || t("failedToUpdateCourse") });
+    } finally {
+      setSavingCourse(false);
+      setEditingCourseGroupId(null);
+      setEditingCourseValue("");
+    }
+  };
+
+  const handleCancelCourseEdit = () => {
+    setEditingCourseGroupId(null);
+    setEditingCourseValue("");
+  };
+
+  if (loading) return <div className="flex items-center justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-ziad-primary" /></div>;
+
+  return (
+    <div className="space-y-5">
+      <section className="rounded-card border border-ziad-line bg-ziad-panel p-5 shadow-sm">
+        <p className="text-xs font-bold uppercase text-ziad-primary">{t("assignments")}</p>
+        <h1 className="text-3xl font-extrabold text-ziad-ink">{t("assignmentBuilder")}</h1>
+        <p className="mt-2 text-sm text-ziad-ink/62">{t("createAndManageQuestions")}</p>
+      </section>
+
+      {message && (
+        <div className={cn(
+          "flex items-center gap-3 rounded-card border px-4 py-3 text-sm font-semibold",
+          message.type === "success" ? "border-green-300 bg-green-50 text-green-800" : "border-red-300 bg-red-50 text-red-800"
+        )}>
+          {message.type === "error" ? <AlertCircle className="h-4 w-4 flex-shrink-0" /> : <Check className="h-4 w-4 flex-shrink-0" />}
+          {message.text}
+          <button onClick={() => setMessage(null)} className="ml-auto rounded-button p-1 hover:bg-black/5">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      <div className="grid gap-4 xl:grid-cols-[380px_1fr]">
+        <section className="rounded-card border border-ziad-line bg-ziad-panel p-4 shadow-sm">
+          <p className="text-xs font-bold uppercase text-ziad-primary">{t("createNew")}</p>
+          <div className="mt-3 space-y-3">
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder={t("assignmentTitle")}
+              className="h-10 w-full rounded-button border border-ziad-line bg-white px-3 text-sm font-semibold outline-none focus:border-ziad-primary"
+            />
+            <select
+              value={type}
+              onChange={(e) => setType(e.target.value as AssignmentType)}
+              className="h-10 w-full rounded-button border border-ziad-line bg-white px-3 text-sm font-semibold outline-none focus:border-ziad-primary"
+            >
+              <option value="assignment">{t("assignmentType")}</option>
+              <option value="skill">{t("skillType")}</option>
+            </select>
+            <select
+              value={courseId}
+              onChange={(e) => setCourseId(e.target.value)}
+              className="h-10 w-full rounded-button border border-ziad-line bg-white px-3 text-sm font-semibold outline-none focus:border-ziad-primary"
+            >
+              <option value="">{t("noCourseOption")}</option>
+              {courses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            {type === "assignment" && (
+              <>
+                <select
+                  value={bookId}
+                  onChange={(event) => setBookId(event.target.value)}
+                  className="h-10 w-full rounded-button border border-ziad-line bg-white px-3 text-sm font-semibold outline-none focus:border-ziad-primary"
+                >
+                  {books.map((book) => <option key={book.id} value={book.id}>{book.title}</option>)}
+                </select>
+                <input
+                  type="number"
+                  value={duration}
+                  onChange={(e) => setDuration(Number(e.target.value))}
+                  placeholder={t("durationMinutes")}
+                  className="h-10 w-full rounded-button border border-ziad-line bg-white px-3 text-sm font-semibold outline-none focus:border-ziad-primary"
+                />
+              </>
+            )}
+            {type === "skill" && (
+              <p className="text-xs font-medium text-ziad-ink/72 italic">{t("skillsUnlimitedDuration")}</p>
+            )}
+            <button
+              onClick={handleCreate}
+              disabled={saving || !title.trim()}
+              type="button"
+              className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-button bg-ziad-primary px-4 text-sm font-extrabold text-ziad-light hover:bg-ziad-ink disabled:opacity-50"
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+              {type === "assignment" ? t("createAssignment") : t("createSkill")}
+            </button>
+          </div>
+        </section>
+
+        <section className="rounded-card border border-ziad-line bg-ziad-panel p-4 shadow-sm">
+          <p className="text-xs font-bold uppercase text-ziad-primary">{t("assignments")}</p>
+          <div className="relative mt-3">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ziad-ink/65" />
+            <input
+              value={assignmentSearch}
+              onChange={(e) => setAssignmentSearch(e.target.value)}
+              placeholder={t("searchAssignments")}
+              className="h-10 w-full rounded-button border border-ziad-line bg-white pl-10 pr-3 text-sm outline-none focus:border-ziad-primary"
+            />
+          </div>
+          <div className="mt-3 space-y-3">
+            {filteredAssignments.length === 0 ? (
+              <p className="text-sm font-medium text-ziad-ink/72">{assignmentSearch.trim() ? t("noAssignmentsMatch") : t("noAssignmentsFound")}</p>
+            ) : filteredAssignments.map((assignment) => (
+              <details key={assignment.id} className="rounded-card border border-ziad-line bg-ziad-light/45 open:bg-ziad-panel">
+                <summary className="flex cursor-pointer list-none items-center justify-between p-4">
+                  <div>
+                    <p className="font-extrabold text-ziad-ink">{assignment.title}</p>
+                    <p className="mt-1 text-xs text-ziad-ink/58">
+                      {editingCourseGroupId === assignment.id ? (
+                        <span className="inline-flex items-center gap-1">
+                          <select
+                            value={editingCourseValue}
+                            onChange={(e) => setEditingCourseValue(e.target.value)}
+                            className="h-6 rounded border border-ziad-line bg-white px-1 text-xs font-semibold outline-none focus:border-ziad-primary"
+                          >
+                            <option value="">{t("notAvailable")}</option>
+                            {courses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                          </select>
+                          <button
+                            onClick={handleSaveCourse}
+                            disabled={savingCourse}
+                            className="rounded p-0.5 text-green-600 hover:bg-green-50 disabled:opacity-50"
+                          >
+                            {savingCourse ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                          </button>
+                          <button
+                            onClick={handleCancelCourseEdit}
+                            className="rounded p-0.5 text-red-500 hover:bg-red-50"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1">
+                          {getCourseById(assignment.courseId || "")?.name || t("notAvailable")}
+                          <button
+                            onClick={() => handleStartCourseEdit(assignment)}
+                            className="rounded p-0.5 text-ziad-ink/40 hover:text-ziad-primary hover:bg-ziad-light"
+                          >
+                            <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                            </svg>
+                          </button>
+                        </span>
+                      )} • {assignment.book?.title || getBookById(assignment.bookId || "")?.title || t("notAvailable")} • {assignment.durationInMinutes} min • {assignment.questionBelongings.length} questions
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <StatusBadge status="published" />
+                    <button
+                      onClick={() => handleDeleteGroup(assignment.id, "assignment")}
+                      disabled={deleteLoading === assignment.id}
+                      className="rounded-button p-1.5 text-red-500 hover:bg-red-50 disabled:opacity-50"
+                    >
+                      {deleteLoading === assignment.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                    </button>
+                    <GripVertical className="h-5 w-5 text-ziad-ink/32" />
+                  </div>
+                </summary>
+                <div className="border-t border-ziad-line p-4">
+                  <div className="mb-3 flex items-center justify-between">
+                    <p className="text-xs font-bold uppercase text-ziad-primary">{t("questionsInAssignment").replace("{count}", String(assignment.questionBelongings.length))}</p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => openQuestionPicker(assignment)}
+                        className="inline-flex items-center gap-1 rounded-button bg-ziad-primary px-3 py-1.5 text-xs font-extrabold text-ziad-light hover:bg-ziad-ink"
+                      >
+                        <Plus className="h-3 w-3" />
+                        {t("addQuestions")}
+                      </button>
+                      <button
+                        onClick={() => { setSelectedGroupForTopic(assignment); setSelectedTopicId(""); setTopicSearch(""); setSelectedTopicQuestionIds(new Set()); setTopicPickerOpen(true); }}
+                        className="inline-flex items-center gap-1 rounded-button border border-ziad-line bg-white px-3 py-1.5 text-xs font-extrabold text-ziad-ink hover:bg-ziad-light"
+                      >
+                        <Plus className="h-3 w-3" />
+                        {t("addQuestionsFromTopic")}
+                      </button>
+                    </div>
+                  </div>
+                  {assignment.questionBelongings.length === 0 ? (
+                    <p className="py-3 text-center text-sm font-medium text-ziad-ink/72 italic">{t("noQuestionsYetClickAdd")}</p>
+                  ) : (
+                    <SortableQuestionList
+                      belongings={assignment.questionBelongings}
+                      groupId={assignment.id}
+                      removingQuestionId={removingQuestionId}
+                      onRemove={handleRemoveQuestion}
+                      onReorder={handleReorder}
+                    />
+                  )}
+                </div>
+              </details>
+            ))}
+          </div>
+          <p className="mt-6 text-xs font-bold uppercase text-ziad-primary">{t("skillsSection")}</p>
+          <div className="relative mt-3">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ziad-ink/65" />
+            <input
+              value={skillSearch}
+              onChange={(e) => setSkillSearch(e.target.value)}
+              placeholder={t("searchSkills")}
+              className="h-10 w-full rounded-button border border-ziad-line bg-white pl-10 pr-3 text-sm outline-none focus:border-ziad-primary"
+            />
+          </div>
+          <div className="mt-3 space-y-3">
+            {filteredSkills.length === 0 ? (
+              <p className="text-sm font-medium text-ziad-ink/72">{skillSearch.trim() ? t("noSkillsMatch") : t("noSkillsFound")}</p>
+            ) : filteredSkills.map((skill) => (
+              <details key={skill.id} className="rounded-card border border-ziad-line bg-ziad-light/45 open:bg-ziad-panel">
+                <summary className="flex cursor-pointer list-none items-center justify-between p-4">
+                  <div>
+                    <p className="font-extrabold text-ziad-ink">{skill.title}</p>
+                    <p className="mt-1 text-xs text-ziad-ink/58">
+                      {editingCourseGroupId === skill.id ? (
+                        <span className="inline-flex items-center gap-1">
+                          <select
+                            value={editingCourseValue}
+                            onChange={(e) => setEditingCourseValue(e.target.value)}
+                            className="h-6 rounded border border-ziad-line bg-white px-1 text-xs font-semibold outline-none focus:border-ziad-primary"
+                          >
+                            <option value="">{t("notAvailable")}</option>
+                            {courses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                          </select>
+                          <button
+                            onClick={handleSaveCourse}
+                            disabled={savingCourse}
+                            className="rounded p-0.5 text-green-600 hover:bg-green-50 disabled:opacity-50"
+                          >
+                            {savingCourse ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                          </button>
+                          <button
+                            onClick={handleCancelCourseEdit}
+                            className="rounded p-0.5 text-red-500 hover:bg-red-50"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1">
+                          {getCourseById(skill.courseId || "")?.name || t("notAvailable")}
+                          <button
+                            onClick={() => handleStartCourseEdit(skill)}
+                            className="rounded p-0.5 text-ziad-ink/40 hover:text-ziad-primary hover:bg-ziad-light"
+                          >
+                            <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                            </svg>
+                          </button>
+                        </span>
+                      )} • {t("unlimitedQuestions").replace("{n}", String(skill.questionBelongings.length))}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <StatusBadge status="published" />
+                    <button
+                      onClick={() => handleDeleteGroup(skill.id, "skill")}
+                      disabled={deleteLoading === skill.id}
+                      className="rounded-button p-1.5 text-red-500 hover:bg-red-50 disabled:opacity-50"
+                    >
+                      {deleteLoading === skill.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                    </button>
+                    <GripVertical className="h-5 w-5 text-ziad-ink/32" />
+                  </div>
+                </summary>
+                <div className="border-t border-ziad-line p-4">
+                  <div className="mb-3 flex items-center justify-between">
+                    <p className="text-xs font-bold uppercase text-ziad-primary">{t("questionsInSkill").replace("{count}", String(skill.questionBelongings.length))}</p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => openQuestionPicker(skill)}
+                        className="inline-flex items-center gap-1 rounded-button bg-ziad-primary px-3 py-1.5 text-xs font-extrabold text-ziad-light hover:bg-ziad-ink"
+                      >
+                        <Plus className="h-3 w-3" />
+                        {t("addQuestions")}
+                      </button>
+                      <button
+                        onClick={() => { setSelectedGroupForTopic(skill); setSelectedTopicId(""); setTopicSearch(""); setSelectedTopicQuestionIds(new Set()); setTopicPickerOpen(true); }}
+                        className="inline-flex items-center gap-1 rounded-button border border-ziad-line bg-white px-3 py-1.5 text-xs font-extrabold text-ziad-ink hover:bg-ziad-light"
+                      >
+                        <Plus className="h-3 w-3" />
+                        {t("addQuestionsFromTopic")}
+                      </button>
+                    </div>
+                  </div>
+                  {skill.questionBelongings.length === 0 ? (
+                    <p className="py-3 text-center text-sm font-medium text-ziad-ink/72 italic">{t("noQuestionsYetClickAdd")}</p>
+                  ) : (
+                    <SortableQuestionList
+                      belongings={skill.questionBelongings}
+                      groupId={skill.id}
+                      removingQuestionId={removingQuestionId}
+                      onRemove={handleRemoveQuestion}
+                      onReorder={handleReorder}
+                    />
+                  )}
+                </div>
+              </details>
+            ))}
+          </div>
+        </section>
+      </div>
+
+      {topicPickerOpen && selectedGroupForTopic && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="max-h-[85vh] w-full max-w-4xl overflow-hidden rounded-card border border-ziad-line bg-ziad-panel shadow-xl">
+            <div className="flex items-center justify-between border-b border-ziad-line p-4">
+              <div>
+                <p className="text-xs font-bold uppercase text-ziad-primary">{t("addQuestionsFromTopic")}</p>
+                <h2 className="text-lg font-extrabold text-ziad-ink">{t("addQuestionsTo").replace("{title}", selectedGroupForTopic.title)}</h2>
+              </div>
+              <button onClick={() => { setTopicPickerOpen(false); setSelectedGroupForTopic(null); setTopicSearch(""); setSelectedTopicQuestionIds(new Set()); }} className="rounded-button p-2 hover:bg-ziad-light">
+                <X className="h-5 w-5 text-ziad-ink" />
+              </button>
+            </div>
+            <div className="border-b border-ziad-line p-4">
+              <div className="flex gap-3">
+                <select
+                  value={selectedTopicId}
+                  onChange={(e) => { setSelectedTopicId(e.target.value); setTopicSearch(""); setSelectedTopicQuestionIds(new Set()); }}
+                  className="h-10 w-48 flex-shrink-0 rounded-button border border-ziad-line bg-white px-3 text-sm font-semibold outline-none focus:border-ziad-primary"
+                >
+                  <option value="">{t("selectTopic")}</option>
+                  {topics.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+                {selectedTopicId && (
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ziad-ink/65" />
+                    <input
+                      value={topicSearch}
+                      onChange={(e) => { setTopicSearch(e.target.value); setSelectedTopicQuestionIds(new Set()); }}
+                      placeholder={t("searchByText")}
+                      className="h-10 w-full rounded-button border border-ziad-line bg-white pl-10 pr-4 text-sm outline-none focus:border-ziad-primary"
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+            {selectedTopicId && (
+              <div className="overflow-y-auto p-4" style={{ maxHeight: "calc(85vh - 180px)" }}>
+                {getFilteredTopicQuestions().length === 0 ? (
+                  <p className="py-8 text-center text-sm font-medium text-ziad-ink/72">
+                    {questions.filter(q => q.topicId === Number(selectedTopicId) && !selectedGroupForTopic.questionBelongings.some(qb => Number(qb.question.id) === Number(q.id))).length === 0
+                      ? t("allQuestionsAdded")
+                      : t("noQuestionsInBank")}
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    <label className="flex items-center gap-2 rounded-button border border-ziad-line bg-ziad-light/45 px-3 py-2 text-sm font-semibold text-ziad-ink cursor-pointer hover:bg-ziad-light">
+                      <input
+                        type="checkbox"
+                        checked={selectedTopicQuestionIds.size === getFilteredTopicQuestions().length && getFilteredTopicQuestions().length > 0}
+                        onChange={handleSelectAllTopicQuestions}
+                        className="h-4 w-4 rounded border-ziad-line text-ziad-primary focus:ring-ziad-primary"
+                      />
+                      {selectedTopicQuestionIds.size === getFilteredTopicQuestions().length && getFilteredTopicQuestions().length > 0
+                        ? t("deselectAll")
+                        : t("selectAll")}
+                      <span className="ml-auto text-xs text-ziad-ink/58">{getFilteredTopicQuestions().length} {t("questions")}</span>
+                    </label>
+                    {getFilteredTopicQuestions().map((question) => (
+                      <div key={question.id} className="flex items-start gap-3 rounded-button border border-ziad-line bg-white p-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedTopicQuestionIds.has(Number(question.id))}
+                          onChange={() => handleToggleTopicQuestion(Number(question.id))}
+                          className="mt-1 h-4 w-4 rounded border-ziad-line text-ziad-primary focus:ring-ziad-primary flex-shrink-0"
+                        />
+                        <div className="min-w-0 flex-1">
+                          {question.content ? (
+                            <p className="text-sm font-semibold text-ziad-ink line-clamp-2">{question.content}</p>
+                          ) : (
+                            <p className="text-sm font-semibold text-ziad-ink/50 italic">{t("questionWithoutText")}</p>
+                          )}
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                            <span className="text-xs font-medium text-ziad-ink/70">
+                              {t("difficultyYearChoices").replace("{difficulty}", question.difficulty).replace("{year}", String(question.yearAppeared)).replace("{n}", String(question.options.length))}
+                            </span>
+                            {question.questionImageUrl && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700 border border-blue-200">
+                                {t("hasImage")}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        {question.questionImageUrl && (
+                          <button onClick={() => setPreviewImageUrl(question.questionImageUrl ?? null)} className="flex-shrink-0 p-0">
+                            <img src={question.questionImageUrl} alt="" loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} className="h-16 w-24 rounded-lg border border-ziad-line object-cover shadow-sm cursor-pointer transition hover:scale-105 hover:shadow-md" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleAddTopicQuestion(question.id)}
+                          disabled={addingQuestion === question.id}
+                          className="flex-shrink-0 inline-flex items-center gap-1 rounded-button bg-ziad-primary px-3 py-1.5 text-xs font-extrabold text-ziad-light hover:bg-ziad-ink disabled:opacity-50"
+                        >
+                          {addingQuestion === question.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+                          {addingQuestion === question.id ? t("searchDots") : t("addQuestions")}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            <div className="border-t border-ziad-line p-4">
+              <div className="flex items-center justify-end gap-3">
+                <button
+                  onClick={() => { setTopicPickerOpen(false); setSelectedGroupForTopic(null); setTopicSearch(""); setSelectedTopicQuestionIds(new Set()); }}
+                  className="rounded-button border border-ziad-line bg-white px-4 py-2 text-sm font-bold text-ziad-ink hover:bg-ziad-light"
+                >
+                  {t("actionCancel")}
+                </button>
+                <button
+                  onClick={handleAddSelectedTopicQuestions}
+                  disabled={!selectedTopicId || addingTopicQuestions || selectedTopicQuestionIds.size === 0}
+                  className="inline-flex items-center gap-2 rounded-button bg-ziad-primary px-4 py-2 text-sm font-extrabold text-ziad-light hover:bg-ziad-ink disabled:opacity-50"
+                >
+                  {addingTopicQuestions ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                  {addingTopicQuestions
+                    ? t("savingDots")
+                    : t("addSelected").replace("{count}", String(selectedTopicQuestionIds.size))}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {questionPickerOpen && selectedGroup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="max-h-[85vh] w-full max-w-4xl overflow-hidden rounded-card border border-ziad-line bg-ziad-panel shadow-xl">
+            <div className="flex items-center justify-between border-b border-ziad-line p-4">
+              <div>
+                <p className="text-xs font-bold uppercase text-ziad-primary">{t("questionPicker")}</p>
+                <h2 className="text-lg font-extrabold text-ziad-ink">{t("addQuestionsTo").replace("{title}", selectedGroup.title)}</h2>
+              </div>
+              <button onClick={() => { setQuestionPickerOpen(false); setSelectedGroup(null); }} className="rounded-button p-2 hover:bg-ziad-light">
+                <X className="h-5 w-5 text-ziad-ink" />
+              </button>
+            </div>
+            <div className="border-b border-ziad-line p-4">
+              <div className="flex gap-3">
+                <select
+                  value={questionBookFilter}
+                  onChange={(e) => setQuestionBookFilter(e.target.value)}
+                  className="h-10 w-48 flex-shrink-0 rounded-button border border-ziad-line bg-white px-3 text-sm font-semibold outline-none focus:border-ziad-primary"
+                >
+                  <option value="">{t("allBooks")}</option>
+                  {books.map((book) => (
+                    <option key={book.id} value={book.id}>{book.title}</option>
+                  ))}
+                </select>
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ziad-ink/65" />
+                  <input
+                    value={questionSearch}
+                    onChange={(e) => setQuestionSearch(e.target.value)}
+                    placeholder={t("searchQuestionsText")}
+                    className="h-10 w-full rounded-button border border-ziad-line bg-white pl-10 pr-4 text-sm outline-none focus:border-ziad-primary"
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="overflow-y-auto p-4" style={{ maxHeight: "calc(85vh - 180px)" }}>
+              {getFilteredAvailable().length === 0 ? (
+                <p className="py-8 text-center text-sm font-medium text-ziad-ink/72">
+                  {questions.length === 0 ? t("noQuestionsInBank") : t("allQuestionsAdded")}
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {getFilteredAvailable().map((question) => (
+                    <div key={question.id} className="flex items-start gap-3 rounded-button border border-ziad-line bg-white p-3">
+                      <div className="min-w-0 flex-1">
+                        {question.content ? (
+                          <p className="text-sm font-semibold text-ziad-ink line-clamp-2">{question.content}</p>
+                        ) : (
+                          <p className="text-sm font-semibold text-ziad-ink/50 italic">{t("questionWithoutText")}</p>
+                        )}
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                          <span className="text-xs font-medium text-ziad-ink/70">
+                            {t("difficultyYearChoices").replace("{difficulty}", question.difficulty).replace("{year}", String(question.yearAppeared)).replace("{n}", String(question.options.length))}
+                          </span>
+                          {question.questionImageUrl && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700 border border-blue-200">
+                              {t("hasImage")}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {question.questionImageUrl && (
+                        <button onClick={() => setPreviewImageUrl(question.questionImageUrl ?? null)} className="flex-shrink-0 p-0">
+                            <img src={question.questionImageUrl} alt="" loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} className="h-16 w-24 rounded-lg border border-ziad-line object-cover shadow-sm cursor-pointer transition hover:scale-105 hover:shadow-md" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleAddQuestion(question.id)}
+                        disabled={addingQuestion === question.id}
+                        className="flex-shrink-0 inline-flex items-center gap-1 rounded-button bg-ziad-primary px-3 py-1.5 text-xs font-extrabold text-ziad-light hover:bg-ziad-ink disabled:opacity-50"
+                      >
+                        {addingQuestion === question.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+                        {addingQuestion === question.id ? t("searchDots") : t("addQuestions")}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="border-t border-ziad-line p-4">
+              <p className="text-center text-xs font-medium text-ziad-ink/70">
+                {t("questionsAvailable").replace("{count}", String(getAvailableQuestions(selectedGroup).length))}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {previewImageUrl && (
+        <ImagePreviewModal src={previewImageUrl} onClose={() => setPreviewImageUrl(null)} />
+      )}
+    </div>
+  );
+}

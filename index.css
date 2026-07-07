@@ -1,0 +1,38 @@
+import type { LucideIcon } from "lucide-react";
+import { cn } from "../../lib/utils";
+
+interface DashboardCardProps {
+  label: string;
+  value: string | number;
+  icon: LucideIcon;
+  helper?: string;
+  tone?: "green" | "blue" | "amber" | "red";
+}
+
+const toneClass = {
+  green: "bg-ziad-light text-ziad-primary border-ziad-line",
+  blue: "bg-blue-50 text-blue-700 border-blue-100",
+  amber: "bg-amber-50 text-amber-700 border-amber-100",
+  red: "bg-red-50 text-red-700 border-red-100",
+};
+
+export function DashboardCard({ label, value, icon: Icon, helper, tone = "green" }: DashboardCardProps) {
+  return (
+    <section className="rounded-card border border-ziad-line bg-ziad-panel p-6 shadow-soft hover:shadow-lift transition-all duration-300 transform hover:-translate-y-1 flex flex-col justify-between group">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.1em] text-ziad-ink/70 mb-1">{label}</p>
+          <p className="text-3xl font-black text-ziad-ink tracking-tight group-hover:text-ziad-primary transition-colors">{value}</p>
+        </div>
+        <div className={cn("grid h-12 w-12 shrink-0 place-items-center rounded-2xl border shadow-sm transition-transform group-hover:scale-110", toneClass[tone])}>
+          <Icon className="h-6 w-6" />
+        </div>
+      </div>
+      {helper && (
+        <p className="mt-4 text-sm font-medium text-ziad-ink/70">
+          {helper}
+        </p>
+      )}
+    </section>
+  );
+}

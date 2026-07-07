@@ -1,0 +1,9 @@
+node_modules
+dist
+.env
+.env.local
+.tmp
+*.tsbuildinfo
+.vite/
+src/lib/config.ts 
+config.yml

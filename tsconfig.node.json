@@ -1,0 +1,185 @@
+import { useEffect, useState } from "react";
+import { GripVertical, Loader2, Plus, Search, Trash2 } from "lucide-react";
+import { useI18n } from "../../contexts/I18nContext";
+import { createBook, deleteBook, getBooks, updateBook, getCourses } from "../../lib/api-service";
+import type { Book } from "../../lib/types";
+import type { AdminCourse } from "../../lib/api-service";
+
+export default function TeacherBooks() {
+  const { t } = useI18n();
+  const [books, setBooks] = useState<Book[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [title, setTitle] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState("");
+  const [editingCourseId, setEditingCourseId] = useState("");
+  const [courses, setCourses] = useState<AdminCourse[]>([]);
+  const [selectedCourseId, setSelectedCourseId] = useState("");
+
+  useEffect(() => {
+    Promise.all([getBooks(), getCourses()])
+      .then(([b, c]) => {
+        setBooks(b);
+        setCourses(c);
+      })
+      .catch((err: any) => setError(err.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const addBook = async () => {
+    if (!title.trim()) {
+      setError(t("pleaseEnterTitleFirst"));
+      return;
+    }
+    if (submitting) return;
+    
+    setError("");
+    setSubmitting(true);
+    try {
+      const newBook = await createBook(title.trim(), selectedCourseId || undefined);
+      setBooks((current) => [...current, newBook]);
+      setTitle("");
+      setSelectedCourseId("");
+    } catch (err: any) {
+      setError(err.message || t("failedToCreateBook"));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const removeBook = async (id: string) => {
+    try {
+      await deleteBook(id);
+      setBooks((current) => current.filter((b) => b.id !== id));
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const filteredBooks = searchQuery.trim()
+    ? books.filter(b => b.title.toLowerCase().includes(searchQuery.toLowerCase()))
+    : books;
+
+  const handleEditSave = async (id: string) => {
+    if (!editingTitle.trim()) return;
+    try {
+      await updateBook(id, editingTitle.trim(), editingCourseId || undefined);
+      setBooks((current) =>
+        current.map((b) => (b.id === id ? { ...b, title: editingTitle.trim(), courseId: editingCourseId || undefined } : b))
+      );
+      setEditingId(null);
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  return (
+    <div className="space-y-5">
+      <section className="rounded-card border border-ziad-line bg-ziad-panel p-5 shadow-sm">
+        <p className="text-xs font-bold uppercase text-ziad-primary">{t("books")}</p>
+        <h1 className="text-3xl font-extrabold text-ziad-ink">{t("chapterLibrary")}</h1>
+        <p className="mt-2 text-sm text-ziad-ink/62">CRUD for books with drag-style ordering controls.</p>
+      </section>
+
+      {error && (
+        <div className="rounded-card border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</div>
+      )}
+
+      <section className="rounded-card border border-ziad-line bg-ziad-panel p-4 shadow-sm">
+        <div className="grid gap-3 sm:grid-cols-[1fr_200px_auto]">
+          <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder={t("bookOrChapterTitle")} className="h-11 rounded-button border border-ziad-line bg-white px-3 text-sm font-semibold outline-none focus:border-ziad-primary" />
+          <select value={selectedCourseId} onChange={(e) => setSelectedCourseId(e.target.value)} className="h-11 rounded-button border border-ziad-line bg-white px-3 text-sm font-semibold outline-none focus:border-ziad-primary">
+            <option value="">{t("noCourseOption")}</option>
+            {courses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <button type="button" onClick={addBook} disabled={submitting} className="inline-flex h-11 items-center justify-center gap-2 rounded-button bg-ziad-primary px-4 text-sm font-extrabold text-ziad-light hover:bg-ziad-ink disabled:opacity-50">
+            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+            {t("addBook")}
+          </button>
+        </div>
+      </section>
+
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ziad-ink/65" />
+        <input
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder={t("searchBooks")}
+          className="h-10 w-full rounded-button border border-ziad-line bg-white pl-10 pr-3 text-sm outline-none focus:border-ziad-primary"
+        />
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-ziad-primary" />
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filteredBooks.length === 0 ? (
+            <p className="text-sm font-medium text-ziad-ink/72">{searchQuery.trim() ? t("noBooksMatch") : ""}</p>
+          ) : filteredBooks
+            .slice()
+            .sort((a, b) => a.orderIndex - b.orderIndex)
+            .map((book, index) => (
+              <section key={book.id} className="flex flex-col gap-3 rounded-card border border-ziad-line bg-ziad-panel p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-3 flex-1">
+                  <button type="button" className="grid h-10 w-10 shrink-0 place-items-center rounded-button border border-ziad-line text-ziad-ink/72 hover:bg-ziad-light" aria-label={t("dragToReorder")}>
+                    <GripVertical className="h-5 w-5" />
+                  </button>
+                  <div className="w-full">
+                    <p className="text-xs font-bold uppercase text-ziad-primary">{t("orderN").replace("{n}", String(index + 1))}</p>
+                    {editingId === book.id ? (
+                      <div className="flex flex-col gap-2 mt-1 w-full max-w-sm">
+                        <input
+                          autoFocus
+                          value={editingTitle}
+                          onChange={(e) => setEditingTitle(e.target.value)}
+                          className="h-9 w-full rounded-button border border-ziad-line px-2 text-sm font-semibold outline-none focus:border-ziad-primary"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleEditSave(book.id);
+                            if (e.key === "Escape") setEditingId(null);
+                          }}
+                        />
+                        <select
+                          value={editingCourseId}
+                          onChange={(e) => setEditingCourseId(e.target.value)}
+                          className="h-9 w-full rounded-button border border-ziad-line px-2 text-sm font-semibold outline-none focus:border-ziad-primary bg-white"
+                        >
+                          <option value="">{t("noCourseOption")}</option>
+                          {courses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
+                      </div>
+                    ) : (
+                      <div>
+                        <h2 className="text-lg font-extrabold text-ziad-ink break-all">{book.title}</h2>
+                        {book.courseId && <p className="text-xs font-semibold text-ziad-ink/72 mt-0.5">Course: {courses.find(c => c.id === book.courseId)?.name || t("unknownCourse")}</p>}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2 shrink-0">
+                  {editingId === book.id ? (
+                    <>
+                      <button type="button" onClick={() => handleEditSave(book.id)} className="rounded-button border border-ziad-line bg-ziad-primary px-3 py-2 text-sm font-bold text-ziad-light hover:bg-ziad-ink">{t("actionSave")}</button>
+                      <button type="button" onClick={() => setEditingId(null)} className="rounded-button border border-ziad-line px-3 py-2 text-sm font-bold text-ziad-ink hover:bg-ziad-light">{t("actionCancel")}</button>
+                    </>
+                  ) : (
+                    <>
+                      <button type="button" onClick={() => { setEditingId(book.id); setEditingTitle(book.title); setEditingCourseId(book.courseId || ""); }} className="rounded-button border border-ziad-line px-3 py-2 text-sm font-bold text-ziad-ink hover:bg-ziad-light">{t("actionEdit")}</button>
+                      <button type="button" onClick={() => removeBook(book.id)} className="inline-flex items-center gap-2 rounded-button border border-red-200 px-3 py-2 text-sm font-bold text-red-700 hover:bg-red-50">
+                        <Trash2 className="h-4 w-4" />
+                        {t("actionDelete")}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </section>
+            ))}
+        </div>
+      )}
+    </div>
+  );
+}
